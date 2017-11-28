@@ -1,0 +1,27 @@
+{
+  "name": "typedump",
+  "version": "1.0.0",
+  "description": "Tool to dump JavaScript state and gather type info",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/SrTobi/typedump.git"
+  },
+  "author": "SrTobi",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/SrTobi/typedump/issues"
+  },
+  "homepage": "https://github.com/SrTobi/typedump#readme",
+  "devDependencies": {
+    "@types/node": "^8.0.53"
+  },
+  "dependencies": {
+    "clime": "^0.5.9",
+    "debugger-api": "^0.1.2",
+    "vscode-chrome-debug-core": "^3.18.5"
+  }
+}
