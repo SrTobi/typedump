@@ -50,7 +50,7 @@ export default class extends Clime.Command {
 
         const node = ChildProc.spawn("node", ["--inspect-brk="+port, target])
         
-        node.stderr.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "ERR " + s).join("\n"))})
+        node.stderr.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "DBG " + s).join("\n"))})
         node.stdout.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "OUT " + s).join("\n"))})
         node.on("close", (code) => {
             if (code) {
@@ -60,35 +60,65 @@ export default class extends Clime.Command {
             }
         });
 
-        //await sleep(500);
-        const fdest = fs.createWriteStream("out.snapshot");
 
         console.log("try to connect!")
         const connect = new blub.chromeConnection.ChromeConnection();
         await connect.attach("localhost", port)
 
         console.log("connected!")
+
+        const getNamedVariablesFn = `
+            function getNamedVariablesFn() {
+                var result = [];
+                var ownProps = Object.getOwnPropertyNames(this);
+                for (var prop of ownProps) result[i] = prop;
+                return result;
+            }`
+
+        const getIndexedVariablesFn = `
+            function getNamedVariablesFn() {
+                var result = [];
+                var ownProps = Object.getOwnPropertyNames(this);
+                for (var prop of ownProps) result[i] = prop;
+                return result;
+            }`
+
+        connect.api.Debugger.onPaused!(async (e) => {
+            if (e.callFrames[0].functionName !== "tryModuleLoad") {
+                connect.api.Debugger.stepOut!()
+            }else {
+                console.log("reached!")
+
+                /*const res = await connect.api.Runtime.callFunctionOn!({
+                    functionDeclaration: getNamedVariablesFn,
+                    objectId: 
+                })*/
+
+                let res = await connect.api.Runtime.getProperties!({objectId: e.callFrames[0].scopeChain[0].object.objectId!})
+                console.log(res)
+                res = await connect.api.Runtime.getProperties!({objectId: res.result[0].value!.objectId!})
+                console.log(res)
+                connect.api.Debugger.resume!()
+            }
+        });
         
-        connect.api.Target.onAttachedToTarget((e) => {console.log("Attach event:", e)})
-        connect.api.Target.onDetachedFromTarget((e) => {console.log("Detach event:", e)})
         connect.api.Runtime.onExecutionContextDestroyed((p) => {
             if (p.executionContextId == 1) {
-                console.log("Take snapshot")
-                connect.api.HeapProfiler.takeHeapSnapshot!({reportProgress: true});
+                connect.close();
+                //connect.api.HeapProfiler.takeHeapSnapshot!({reportProgress: true});
             }
         })
 
-        connect.api.HeapProfiler.onAddHeapSnapshotChunk((e) => {
+        /*connect.api.HeapProfiler.onAddHeapSnapshotChunk((e) => {
             console.log("new snapshot chunk ", e.chunk.length)
             fdest.write(e.chunk);
             if (e.chunk[e.chunk.length-1] == "}") {
                 console.log("end!");
-                connect.close();
             }
         })
         connect.api.HeapProfiler.onReportHeapSnapshotProgress(e => {
             console.log("Heap taken", e.total)
-        });
+        });*/
 
         console.log("check enabled!")
         //await connect.api.Console.enable!();
@@ -102,10 +132,9 @@ export default class extends Clime.Command {
         ];
 
         console.log("enalbed!");
-        await sleep(200)
 
-        await connect.api.Debugger.resume!();
-        console.log("resumed!");
+        //await connect.api.Debugger.resume!();
+        //console.log("resumed!");
 
         
     }
