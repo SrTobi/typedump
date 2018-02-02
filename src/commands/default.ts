@@ -4,6 +4,8 @@ import * as fs from 'fs'
 import * as ChildProc from 'child_process'
 //import * as inspector from 'inspector'
 import * as blub from 'vscode-chrome-debug-core'
+import { Inspector, ValuePropertyDescription } from '../inspector';
+
 
 /*
 function progargs(): StringCastable<string[]> {
@@ -36,7 +38,7 @@ class Options extends Clime.Options {
 export default class extends Clime.Command {
     async execute(
         @Clime.param({
-            default: ".",
+            default: "blub.js",
             description: "The target module or file"
         })
         target: string,
@@ -47,6 +49,8 @@ export default class extends Clime.Command {
         console.log(`Execute '${target}'...`)
 
         let port = 8934
+
+        
 
         const node = ChildProc.spawn("node", ["--inspect-brk="+port, target])
         
@@ -60,8 +64,44 @@ export default class extends Clime.Command {
             }
         });
 
+        const insp = await Inspector.create(port)
 
-        console.log("try to connect!")
+        insp.debugger.onPaused!(async (e) => {
+            if (e.callFrames[0].functionName !== "tryModuleLoad") {
+                insp.debugger.stepOut!()
+            }else {
+                console.log("reached!")
+
+                /*const res = await insp.debugger.evaluateOnCallFrame!({
+                    callFrameId: e.callFrames[0].callFrameId,
+                    expression: "module",
+                    objectGroup: "blub"
+                })*/
+                const global = /*e.callFrames[0].scopeChain[0]//*/e.callFrames[0].scopeChain[e.callFrames[0].scopeChain.length - 1]
+
+                const glob = await insp.getAllObjects([global.object])
+                //console.log(glob.map(node => {if (node.type == "object") return (node.properties[5] as ValuePropertyDescription).value.id; else return node}))
+                console.log(glob)
+
+                console.log(JSON.stringify(glob, undefined, "  "))
+                console.log("done...")
+
+                insp.debugger.resume!()
+
+                /*const res = await connect.api.Runtime.callFunctionOn!({
+                    functionDeclaration: getNamedVariablesFn,
+                    objectId: 
+                })
+
+                let res = await connect.api.Runtime.getProperties!({objectId: e.callFrames[0].scopeChain[0].object.objectId!})
+                console.log(res)
+                res = await connect.api.Runtime.getProperties!({objectId: res.result[0].value!.objectId!})
+                console.log(res)
+                connect.api.Debugger.resume!()*/
+            }
+        });
+
+        /*console.log("try to connect!")
         const connect = new blub.chromeConnection.ChromeConnection();
         await connect.attach("localhost", port)
 
@@ -92,7 +132,7 @@ export default class extends Clime.Command {
                 /*const res = await connect.api.Runtime.callFunctionOn!({
                     functionDeclaration: getNamedVariablesFn,
                     objectId: 
-                })*/
+                })
 
                 let res = await connect.api.Runtime.getProperties!({objectId: e.callFrames[0].scopeChain[0].object.objectId!})
                 console.log(res)
@@ -118,13 +158,13 @@ export default class extends Clime.Command {
         })
         connect.api.HeapProfiler.onReportHeapSnapshotProgress(e => {
             console.log("Heap taken", e.total)
-        });*/
+        });
 
         console.log("check enabled!")
         //await connect.api.Console.enable!();
         await [
             connect.api.Console.enable!()
-                .catch(e => { /* Specifically ignore a fail here since it's only for backcompat */ }),
+                .catch(e => { /* Specifically ignore a fail here since it's only for backcompat  }),
             connect.api.Debugger.enable!(),
             connect.api.Runtime.enable!(),
             connect.api.HeapProfiler.enable!(),
@@ -136,6 +176,6 @@ export default class extends Clime.Command {
         //await connect.api.Debugger.resume!();
         //console.log("resumed!");
 
-        
+        */
     }
 }
