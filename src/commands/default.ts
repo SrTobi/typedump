@@ -1,10 +1,47 @@
 import * as Path from 'path'
 import * as Clime from 'clime'
-import * as fs from 'fs'
 import * as ChildProc from 'child_process'
-//import * as inspector from 'inspector'
-import * as blub from 'vscode-chrome-debug-core'
-import { Inspector, ValuePropertyDescription } from '../inspector';
+import * as utils from '../utils'
+
+
+const root = Path.normalize(`${__dirname}/../..`)
+
+const mainTmplPath = `${root}/tmpl/main.js`
+
+async function tmpl_replace(source: string, path: string, vars: { [name: string]: string }): Promise<string> {
+    let match: RegExpExecArray | null
+    {
+        const regex = /"\$tmpl-file:([^"]+)"/g
+        const replFiles: string[] = []
+        while (match = regex.exec(source)) {
+            replFiles.push(match[1])
+        }
+
+        for (const f of replFiles) {
+            const file = `${path}/${f}`
+            console.log(`- Inject ${file}`)
+            source = source.replace(`\"$tmpl-file:${f}"`, await utils.readFile(file))
+        }
+    }
+
+    {
+        const regex = /"\$tmpl-var:([^"]+)"/g
+        const replVars: string[] = []
+        while (match = regex.exec(source)) {
+            replVars.push(match[1])
+        }
+
+        for (const v of replVars) {
+            if (!vars[v]) {
+                throw new Error(`Unknown variable ${v}`)
+            }
+            source = source.replace(`\"$tmpl-var:${v}"`, `\"${vars[v]}\"`)
+        }
+    }
+
+
+    return source
+}
 
 
 /*
@@ -46,136 +83,49 @@ export default class extends Clime.Command {
         ops: Options
     ) {
         target = Path.resolve(target)
-        console.log(`Execute '${target}'...`)
-
-        let port = 8934
-
+        console.log(`Analyse '${target}'...`)
+        const targetJs = require.resolve(target)
+        console.log(`Entry:  '${targetJs}'`)
         
+        console.log("Load template file...")
+        const mainTmpl = await utils.readFile(mainTmplPath)
+        console.log(` => Success (${mainTmpl.length} characters read)`)
 
-        const node = ChildProc.spawn("node", ["--inspect-brk="+port, target])
+        // transform main source
+        console.log("Build entry file...")
+        const constants = {
+            'entry': targetJs,
+            'snapshot-dst': Path.resolve("./snapshot.json")
+        }
+        const entrySource = await tmpl_replace(mainTmpl, `${root}/tmpl`, constants)
+
+        const entryJs = `_${Path.basename(target)}.entry.js`
+        console.log(`Write entry file to ${entryJs}...`)
+        await utils.writeFile(entryJs, entrySource)
+        console.log(` => Success (${entrySource.length} characters written)`)
         
-        node.stderr.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "DBG " + s).join("\n"))})
-        node.stdout.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "OUT " + s).join("\n"))})
-        node.on("close", (code) => {
-            if (code) {
-                console.log("Exited with error:", code)
-            }else {
-                console.log("Exited ok!")
-            }
-        });
+        try {
+            console.log(`Run entry...`)
 
-        const insp = await Inspector.create(port)
-
-        insp.debugger.onPaused!(async (e) => {
-            if (e.callFrames[0].functionName !== "tryModuleLoad") {
-                insp.debugger.stepOut!()
-            }else {
-                console.log("reached!")
-
-                /*const res = await insp.debugger.evaluateOnCallFrame!({
-                    callFrameId: e.callFrames[0].callFrameId,
-                    expression: "module",
-                    objectGroup: "blub"
-                })*/
-                const global = /*e.callFrames[0].scopeChain[0]//*/e.callFrames[0].scopeChain[e.callFrames[0].scopeChain.length - 1]
-
-                const glob = await insp.getAllObjects([global.object])
-                //console.log(glob.map(node => {if (node.type == "object") return (node.properties[5] as ValuePropertyDescription).value.id; else return node}))
-                console.log(glob)
-
-                console.log(JSON.stringify(glob, undefined, "  "))
-                console.log("done...")
-
-                insp.debugger.resume!()
-
-                /*const res = await connect.api.Runtime.callFunctionOn!({
-                    functionDeclaration: getNamedVariablesFn,
-                    objectId: 
+            const node = ChildProc.spawn("node", [entryJs])
+            
+            node.stderr.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "DBG " + s).join("\n"))})
+            node.stdout.on('data', (data) => { console.log((data as Buffer).toLocaleString().split("\n").map(s => "OUT " + s).join("\n"))})
+            await new Promise<void>((resolve, reject) => {
+                node.on("close", (err) => {
+                    if (err) {
+                        reject(err)
+                    }else {
+                        resolve()
+                    }
                 })
-
-                let res = await connect.api.Runtime.getProperties!({objectId: e.callFrames[0].scopeChain[0].object.objectId!})
-                console.log(res)
-                res = await connect.api.Runtime.getProperties!({objectId: res.result[0].value!.objectId!})
-                console.log(res)
-                connect.api.Debugger.resume!()*/
-            }
-        });
-
-        /*console.log("try to connect!")
-        const connect = new blub.chromeConnection.ChromeConnection();
-        await connect.attach("localhost", port)
-
-        console.log("connected!")
-
-        const getNamedVariablesFn = `
-            function getNamedVariablesFn() {
-                var result = [];
-                var ownProps = Object.getOwnPropertyNames(this);
-                for (var prop of ownProps) result[i] = prop;
-                return result;
-            }`
-
-        const getIndexedVariablesFn = `
-            function getNamedVariablesFn() {
-                var result = [];
-                var ownProps = Object.getOwnPropertyNames(this);
-                for (var prop of ownProps) result[i] = prop;
-                return result;
-            }`
-
-        connect.api.Debugger.onPaused!(async (e) => {
-            if (e.callFrames[0].functionName !== "tryModuleLoad") {
-                connect.api.Debugger.stepOut!()
-            }else {
-                console.log("reached!")
-
-                /*const res = await connect.api.Runtime.callFunctionOn!({
-                    functionDeclaration: getNamedVariablesFn,
-                    objectId: 
-                })
-
-                let res = await connect.api.Runtime.getProperties!({objectId: e.callFrames[0].scopeChain[0].object.objectId!})
-                console.log(res)
-                res = await connect.api.Runtime.getProperties!({objectId: res.result[0].value!.objectId!})
-                console.log(res)
-                connect.api.Debugger.resume!()
-            }
-        });
-        
-        connect.api.Runtime.onExecutionContextDestroyed((p) => {
-            if (p.executionContextId == 1) {
-                connect.close();
-                //connect.api.HeapProfiler.takeHeapSnapshot!({reportProgress: true});
-            }
-        })
-
-        /*connect.api.HeapProfiler.onAddHeapSnapshotChunk((e) => {
-            console.log("new snapshot chunk ", e.chunk.length)
-            fdest.write(e.chunk);
-            if (e.chunk[e.chunk.length-1] == "}") {
-                console.log("end!");
-            }
-        })
-        connect.api.HeapProfiler.onReportHeapSnapshotProgress(e => {
-            console.log("Heap taken", e.total)
-        });
-
-        console.log("check enabled!")
-        //await connect.api.Console.enable!();
-        await [
-            connect.api.Console.enable!()
-                .catch(e => { /* Specifically ignore a fail here since it's only for backcompat  }),
-            connect.api.Debugger.enable!(),
-            connect.api.Runtime.enable!(),
-            connect.api.HeapProfiler.enable!(),
-            connect.run!()
-        ];
-
-        console.log("enalbed!");
-
-        //await connect.api.Debugger.resume!();
-        //console.log("resumed!");
-
-        */
+            })
+        } catch (err) {
+            console.error("Failed to execute target:", err)
+        } finally {
+            console.log("Remove entry file...")
+            //await utils.deleteFile(entryJs)
+            console.log(" => Success")
+        }
     }
 }
